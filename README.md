@@ -1,8 +1,8 @@
-# SkyProcessor hallway demo
+# SkyProcessor hallway
 
-Minimal raylib prototype with flying controls, hallway grids, wall notes, and a small choice table.
+A project defined by class course work
 
-## Build (macOS, real raylib)
+## Build (macOS)
 1) Install raylib (Homebrew): `brew install raylib`
 2) Compile:  
    `g++ -std=c++17 main.cpp -o skyproc -I/opt/homebrew/include -L/opt/homebrew/lib -lraylib -framework Cocoa -framework IOKit -framework CoreVideo -framework OpenGL`
