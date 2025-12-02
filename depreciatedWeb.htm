@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Hallway Web Prototype</title>
+  <style>
+    html, body { margin: 0; padding: 0; overflow: hidden; background: #0a0a10; font-family: "SF Pro Display", "Segoe UI", sans-serif; color: #f5f5f5; }
+    #hud { position: fixed; top: 10px; left: 10px; right: 10px; display: flex; justify-content: space-between; pointer-events: none; font-size: 14px; }
+    #noteCount { background: rgba(200,0,0,0.7); padding: 6px 10px; border-radius: 999px; }
+    #centerDot { position: fixed; top: 50%; left: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; background: #ff4444; border-radius: 50%; pointer-events: none; }
+    #addBtn { position: fixed; bottom: 16px; right: 16px; padding: 12px 16px; background: #1a1a24; color: #f5f5f5; border: 1px solid #444; border-radius: 10px; }
+    #addBtn:active { transform: translateY(1px); }
+    .stick { position: fixed; bottom: 16px; width: 120px; height: 120px; border-radius: 60px; border: 1px solid #444; background: rgba(255,255,255,0.05); touch-action: none; }
+    #moveStick { left: 16px; }
+    #lookStick { right: 16px; }
+    .knob { position: absolute; width: 48px; height: 48px; border-radius: 24px; background: rgba(255,255,255,0.15); left: 36px; top: 36px; }
+    #inputPanel { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #1a1a24; padding: 16px; border: 1px solid #444; border-radius: 12px; display: none; }
+    #inputPanel textarea { width: 240px; height: 80px; background: #0f0f16; color: #f5f5f5; border: 1px solid #555; border-radius: 8px; padding: 8px; }
+    #inputPanel button { margin-top: 8px; padding: 8px 12px; }
+  </style>
+</head>
+<body>
+  <div id="hud"></div>
+  <div id="centerDot"></div>
+  <div id="moveStick" class="stick"><div class="knob"></div></div>
+  <div id="lookStick" class="stick"><div class="knob"></div></div>
+  <button id="addBtn">+ Note</button>
+  <div id="inputPanel">
+    <div style="margin-bottom:6px;">Add note</div>
+    <textarea id="noteText"></textarea><br />
+    <button id="saveNote">Save</button>
+    <button id="cancelNote">Cancel</button>
+  </div>
+  <canvas id="c"></canvas>
+  <script src="https://unpkg.com/three@0.164.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+  <script>
+    let pyodideReady = (async () => {
+      const py = await loadPyodide();
+      await py.runPythonAsync(`
+import random
+notes = []
+
+def init_state():
+    msgs = ["hello", "hi", "is anyone here", "still there?", "echo..."]
+    notes.clear()
+    for msg in msgs:
+        left = random.random() < 0.5
+        x = -4.35 if left else 4.35
+        z = 1.0 + random.random() * 30.0
+        y = 0.8 + random.random() * (16.0 - 1.2)
+        notes.append({"text": msg, "x": x, "y": y, "z": z})
+
+def add_note(text, x, y, z):
+    notes.append({"text": text, "x": x, "y": y, "z": z})
+    return len(notes) - 1
+
+def get_notes():
+    return notes
+      `);
+      return py;
+    })();
+    const canvas = document.getElementById('c');
+    const renderer = new THREE.WebGLRenderer({canvas, antialias: true});
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.toneMappingExposure = 0.95;
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0a10);
+    const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 200);
+    camera.position.set(0, 1.6, -6);
+
+    const hemi = new THREE.HemisphereLight(0x223355, 0x050505, 0.7);
+    scene.add(hemi);
+    const ambient = new THREE.AmbientLight(0x202030, 0.4);
+    scene.add(ambient);
+    const spot = new THREE.SpotLight(0x88aaff, 2.2, 80, Math.PI / 5, 0.35);
+    spot.position.set(0, 18, 12);
+    spot.target.position.set(0, 0, 16);
+    scene.add(spot);
+    scene.add(spot.target);
+
+    const floorGeo = new THREE.PlaneGeometry(30, 80);
+    const floorMat = new THREE.MeshStandardMaterial({color: 0x0c0c12, roughness: 0.8, metalness: 0.05});
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.z = 16;
+    scene.add(floor);
+    const grid = new THREE.GridHelper(30, 6, 0x333344, 0x22222c);
+    grid.position.z = 16;
+    scene.add(grid);
+
+    const wallMat = new THREE.MeshStandardMaterial({color: 0x151a2c, emissive: 0x05070d, roughness: 0.6, metalness: 0.05});
+    const wallGeo = new THREE.BoxGeometry(0.3, 16, 32);
+    const leftWall = new THREE.Mesh(wallGeo, wallMat);
+    leftWall.position.set(-4.5, 8, 16);
+    scene.add(leftWall);
+    const rightWall = leftWall.clone();
+    rightWall.position.x = 4.5;
+    scene.add(rightWall);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(9, 0.3, 32), wallMat);
+    roof.position.set(0, 16, 16);
+    scene.add(roof);
+    const back = new THREE.Mesh(new THREE.BoxGeometry(9, 16, 0.3), wallMat);
+    back.position.set(0, 8, 32);
+    scene.add(back);
+
+    const noteSprites = [];
+    const notes = [];
+    const noteTexture = new THREE.CanvasTexture(makeNoteTexture("#fff772", "#000000"));
+    const noteTextureNew = new THREE.CanvasTexture(makeNoteTexture("#ff6666", "#200000"));
+    let countSprite, countTextSprite;
+
+    function makeNoteTexture(bg, border) {
+      const s = 128;
+      const c = document.createElement('canvas');
+      c.width = c.height = s;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = bg; ctx.fillRect(0,0,s,s);
+      ctx.strokeStyle = border; ctx.lineWidth = 6; ctx.strokeRect(3,3,s-6,s-6);
+      ctx.fillStyle = "#111"; ctx.font = "bold 32px sans-serif"; ctx.fillText("...", 12, 50);
+      return c;
+    }
+
+    function updateCountWall() {
+      if (!countSprite) {
+        const s = new THREE.Mesh(new THREE.SphereGeometry(0.3, 16, 12), new THREE.MeshStandardMaterial({color: 0xff4444, emissive: 0x400000}));
+        s.position.set(-4.6, 14.5, 6.0);
+        scene.add(s);
+        const tex = new THREE.CanvasTexture(makeCountTexture(notes.length));
+        const mat = new THREE.SpriteMaterial({map: tex, transparent: true});
+        const spr = new THREE.Sprite(mat);
+        spr.scale.set(0.8, 0.8, 0.8);
+        spr.position.set(-4.6, 15.2, 6.0);
+        scene.add(spr);
+        countSprite = s;
+        countTextSprite = spr;
+      } else if (countTextSprite) {
+        countTextSprite.material.map.dispose();
+        countTextSprite.material.map = new THREE.CanvasTexture(makeCountTexture(notes.length));
+        countTextSprite.material.map.needsUpdate = true;
+      }
+    }
+
+    function makeCountTexture(count) {
+      const s = 128;
+      const c = document.createElement('canvas');
+      c.width = c.height = s;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0,0,s,s);
+      ctx.fillStyle = "#ff4444";
+      ctx.beginPath();
+      ctx.arc(s/2, s/2, s/2 - 4, 0, Math.PI*2);
+      ctx.fill();
+      ctx.fillStyle = "#fff";
+      ctx.font = "bold 56px sans-serif";
+      const text = String(count);
+      const tw = ctx.measureText(text).width;
+      ctx.fillText(text, (s - tw)/2, s/2 + 18);
+      return c;
+    }
+
+    async function syncNotesFromPy() {
+      const py = await pyodideReady;
+      const list = py.runPython("list(get_notes())");
+      // remove existing sprites
+      for (const s of noteSprites) scene.remove(s);
+      noteSprites.length = 0;
+      notes.length = 0;
+      for (let i = 0; i < list.length; ++i) {
+        const n = list[i];
+        const map = (i === list.length - 1 && list.length > 0) ? noteTextureNew : noteTexture.clone();
+        map.needsUpdate = true;
+        const mat = new THREE.SpriteMaterial({map});
+        const sprite = new THREE.Sprite(mat);
+        sprite.scale.set(0.6, 0.6, 0.6);
+        sprite.position.set(n.x, n.y, n.z);
+        scene.add(sprite);
+        noteSprites.push(sprite);
+        notes.push({text: n.text, pos: sprite.position});
+      }
+      updateCountWall();
+    }
+
+    async function addNote(text, pos) {
+      const py = await pyodideReady;
+      py.globals.set("tx", pos.x);
+      py.globals.set("ty", pos.y);
+      py.globals.set("tz", pos.z);
+      py.globals.set("tt", text);
+      py.runPython("add_note(tt, tx, ty, tz)");
+      await syncNotesFromPy();
+    }
+
+    let moveInput = {x:0, y:0};
+    let lookInput = {x:0, y:0};
+    const speed = 5;
+
+    function resize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+    }
+    window.addEventListener('resize', resize);
+    resize();
+
+    function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
+
+    let pitch = 0, yaw = 0;
+    function animate(t) {
+      requestAnimationFrame(animate);
+      const dt = 0.016;
+      yaw += lookInput.x * dt * 2.5;
+      pitch -= lookInput.y * dt * 2.0;
+      pitch = clamp(pitch, -Math.PI/2+0.05, Math.PI/2-0.05);
+      const dir = new THREE.Vector3(
+        Math.sin(yaw) * Math.cos(pitch),
+        Math.sin(pitch),
+        Math.cos(yaw) * Math.cos(pitch)
+      );
+      const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
+      const forwardFlat = new THREE.Vector3(dir.x,0,dir.z).normalize();
+      const move = new THREE.Vector3();
+      move.addScaledVector(forwardFlat, moveInput.y);
+      move.addScaledVector(right, moveInput.x);
+      move.multiplyScalar(dt * speed);
+      camera.position.add(move);
+      camera.position.y = clamp(camera.position.y, 0.6, 15.0);
+      camera.lookAt(camera.position.clone().add(dir));
+      renderer.render(scene, camera);
+    }
+    requestAnimationFrame(animate);
+
+    function setupStick(stickEl, onMove) {
+      const knob = stickEl.querySelector('.knob');
+      let active = false;
+      let rect, cx, cy;
+      function start(e) {
+        active = true;
+        rect = stickEl.getBoundingClientRect();
+        cx = rect.left + rect.width/2;
+        cy = rect.top + rect.height/2;
+        move(e);
+      }
+      function move(e) {
+        if (!active) return;
+        const touch = e.touches ? e.touches[0] : e;
+        const dx = clamp(touch.clientX - cx, -50, 50);
+        const dy = clamp(touch.clientY - cy, -50, 50);
+        knob.style.transform = `translate(${dx}px, ${dy}px)`;
+        onMove(dx/50, dy/50);
+      }
+      function end() { active = false; knob.style.transform = 'translate(0px,0px)'; onMove(0,0); }
+      stickEl.addEventListener('touchstart', start, {passive:false});
+      stickEl.addEventListener('touchmove', move, {passive:false});
+      stickEl.addEventListener('touchend', end);
+      stickEl.addEventListener('mousedown', start);
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', end);
+    }
+    setupStick(document.getElementById('moveStick'), (x,y)=>{ moveInput.x = x; moveInput.y = -y; });
+    setupStick(document.getElementById('lookStick'), (x,y)=>{ lookInput.x = x; lookInput.y = -y; });
+
+    window.addEventListener('click', () => { if (document.pointerLockElement !== canvas) canvas.requestPointerLock(); });
+    window.addEventListener('mousemove', (e)=> {
+      if (document.pointerLockElement === canvas) {
+        lookInput.x += e.movementX * 0.0025;
+        lookInput.y += e.movementY * 0.0020;
+      }
+    });
+    window.addEventListener('keydown', (e)=> {
+      if (e.code === 'KeyW') moveInput.y = 1;
+      if (e.code === 'KeyS') moveInput.y = -1;
+      if (e.code === 'KeyA') moveInput.x = -1;
+      if (e.code === 'KeyD') moveInput.x = 1;
+    });
+    window.addEventListener('keyup', (e)=> {
+      if (['KeyW','KeyS'].includes(e.code)) {
+        const other = (e.code === 'KeyW' && e.getModifierState('Shift')) ? -1 : 0;
+        moveInput.y = other;
+      }
+      if (['KeyA','KeyD'].includes(e.code)) {
+        const other = (e.code === 'KeyA' && e.getModifierState('Shift')) ? 1 : 0;
+        moveInput.x = other;
+      }
+      if (!['KeyW','KeyS'].includes(e.code)) moveInput.y = 0;
+      if (!['KeyA','KeyD'].includes(e.code)) moveInput.x = 0;
+    });
+
+    const addBtn = document.getElementById('addBtn');
+    const panel = document.getElementById('inputPanel');
+    const save = document.getElementById('saveNote');
+    const cancel = document.getElementById('cancelNote');
+    const noteText = document.getElementById('noteText');
+    addBtn.onclick = ()=> { panel.style.display = 'block'; noteText.focus(); };
+    save.onclick = ()=> {
+      const txt = noteText.value.trim();
+      if (txt) {
+        const pos = camera.position.clone().add(new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion).multiplyScalar(-1.2));
+        addNote(txt, pos);
+      }
+      noteText.value = '';
+      panel.style.display = 'none';
+    };
+    cancel.onclick = ()=> { panel.style.display = 'none'; noteText.value = ''; };
+
+    // Init python state and first sync
+    pyodideReady.then(async py => {
+      await py.runPythonAsync("init_state()");
+      await syncNotesFromPy();
+    });
+  </script>
+</body>
+</html>
+
